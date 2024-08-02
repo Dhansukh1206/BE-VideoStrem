@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 app.use(
   cors({
-    origin: ["http://localhost:3000", "https://your-mobile-origin.com"],
+    origin: ["http://localhost:3000", "https://192.168.43.60:3000"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
