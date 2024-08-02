@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: ["http://localhost:3000", "https://your-mobile-origin.com"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -23,7 +23,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-console.log("process.env.MONGODB_URI ==============>", process.env.MONGODB_URI)
+console.log("process.env.MONGODB_URI ==============>", process.env.MONGODB_URI);
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected"))
