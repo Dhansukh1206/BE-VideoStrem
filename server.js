@@ -3,6 +3,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const http = require("http");
+const authRoutes = require("./routes/auth");
 const videoRoutes = require("./routes/video");
 const path = require("path");
 const WebSocket = require("ws");
@@ -12,9 +13,14 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://192.168.43.60:3000", "https://videostremer.netlify.app"],
+    origin: [
+      "http://localhost:3000",
+      "http://192.168.43.60:3000",
+      "https://videostremer.netlify.app",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -23,13 +29,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-console.log("process.env.MONGODB_URI ==============>", process.env.MONGODB_URI);
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log(err));
 
-const authRoutes = require("./routes/auth");
 app.use("/api/auth", authRoutes);
 app.use("/api/videos", videoRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -51,6 +55,36 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     console.log("WebSocket connection closed");
   });
+});
+
+app.get("/live", (req, res) => {
+  const filePath = path.resolve(__dirname, "path_to_your_live_stream_file");
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = end - start + 1;
+    const file = fs.createReadStream(filePath, { start, end });
+    const head = {
+      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunksize,
+      "Content-Type": "video/mp4",
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      "Content-Length": fileSize,
+      "Content-Type": "video/mp4",
+    };
+    res.writeHead(200, head);
+    fs.createReadStream(filePath).pipe(res);
+  }
 });
 
 const PORT = process.env.PORT || 8080;

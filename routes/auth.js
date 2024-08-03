@@ -43,7 +43,7 @@ router.post("/login", async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
-    const expirationTime = Math.floor(Date.now() / 1000) + 1 * 60;
+    const expirationTime = Math.floor(Date.now() / 1000) + 24 * 60 * 60;
 
     console.log("expirationTime =>", expirationTime);
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
