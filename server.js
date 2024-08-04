@@ -38,6 +38,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/videos", videoRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// WebSocket setup
 wss.on("connection", (ws) => {
   console.log("WebSocket connection established");
 
@@ -45,11 +46,30 @@ wss.on("connection", (ws) => {
     const data = JSON.parse(message);
     console.log("Received message:", data);
 
+    // Broadcast message to all clients except the sender
     wss.clients.forEach((client) => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
       }
     });
+
+    // Handle signaling messages
+    if (
+      data.type === "offer" ||
+      data.type === "answer" ||
+      data.type === "candidate"
+    ) {
+      // Send signaling data to the specified target user
+      wss.clients.forEach((client) => {
+        if (
+          client !== ws &&
+          client.readyState === WebSocket.OPEN &&
+          client.userId === data.target
+        ) {
+          client.send(JSON.stringify(data));
+        }
+      });
+    }
   });
 
   ws.on("close", () => {
