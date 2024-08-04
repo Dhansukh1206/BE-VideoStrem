@@ -18,7 +18,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "http://192.168.43.60:3000",
+      "http://192.168.190.232:3000",
       "https://videostremer.netlify.app",
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
