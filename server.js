@@ -5,8 +5,10 @@ const dotenv = require("dotenv");
 const http = require("http");
 const authRoutes = require("./routes/auth");
 const videoRoutes = require("./routes/video");
+const userRoutes = require("./routes/userList");
 const path = require("path");
 const WebSocket = require("ws");
+const User = require("./models/User");
 
 dotenv.config();
 
@@ -19,7 +21,8 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://192.168.190.232:3000",
-      "https://videostremer.netlify.app",
+      "http://192.168.1.6:3000",
+      "https://videostremer.netlify.app"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -35,75 +38,117 @@ mongoose
   .catch((err) => console.log(err));
 
 app.use("/api/auth", authRoutes);
-app.use("/api/videos", videoRoutes);
+app.use("/api", userRoutes);
+app.use("/api", videoRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// WebSocket setup
-wss.on("connection", (ws) => {
+const users = {};
+
+wss.on("connection", (ws, req) => {
   console.log("WebSocket connection established");
 
-  ws.on("message", (message) => {
-    const data = JSON.parse(message);
-    console.log("Received message:", data);
+  console.log("req.url", req.url);
+  console.log("req.headers.host", req.headers.host);
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const userId = url.searchParams.get("user-id");
 
-    // Broadcast message to all clients except the sender
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(data));
+  if (userId) {
+    ws.userId = userId;
+    users[userId] = ws;
+
+    User.findByIdAndUpdate(userId, { online: true }, { new: true }).exec();
+
+    const updateActiveUsers = async () => {
+      const activeUsers = await User.find({ online: true });
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(
+            JSON.stringify({ type: "activeUsers", users: activeUsers })
+          );
+        }
+      });
+    };
+
+    updateActiveUsers();
+
+    ws.on("message", (message) => {
+      const data = JSON.parse(message);
+      console.log("Received message:", data);
+
+      switch (data.type) {
+        case "call":
+          if (users[data.target]) {
+            users[data.target].send(
+              JSON.stringify({
+                type: "incoming_call",
+                from: data.userId,
+                offer: data.offer,
+                callType: data.callType,
+              })
+            );
+          }
+          break;
+        case "answer":
+          if (users[data.target]) {
+            users[data.target].send(
+              JSON.stringify({
+                type: "call_accepted",
+                from: data.userId,
+                answer: data.answer,
+              })
+            );
+          }
+          break;
+        case "reject":
+          if (users[data.target]) {
+            users[data.target].send(
+              JSON.stringify({
+                type: "call_rejected",
+                from: data.userId,
+              })
+            );
+          }
+          break;
+        case "candidate":
+          if (users[data.target]) {
+            users[data.target].send(JSON.stringify(data));
+          }
+          break;
+        case "end":
+          if (users[data.target]) {
+            users[data.target].send(JSON.stringify({ type: "end" }));
+          }
+          break;
+        default:
+          console.log("Unknown message type:", data.type);
+          break;
       }
     });
 
-    // Handle signaling messages
-    if (
-      data.type === "offer" ||
-      data.type === "answer" ||
-      data.type === "candidate"
-    ) {
-      // Send signaling data to the specified target user
-      wss.clients.forEach((client) => {
-        if (
-          client !== ws &&
-          client.readyState === WebSocket.OPEN &&
-          client.userId === data.target
-        ) {
-          client.send(JSON.stringify(data));
-        }
-      });
-    }
-  });
-
-  ws.on("close", () => {
-    console.log("WebSocket connection closed");
-  });
-});
-
-app.get("/live", (req, res) => {
-  const filePath = path.resolve(__dirname, "path_to_your_live_stream_file");
-  const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
-  const range = req.headers.range;
-
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    const chunksize = end - start + 1;
-    const file = fs.createReadStream(filePath, { start, end });
-    const head = {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunksize,
-      "Content-Type": "video/mp4",
-    };
-    res.writeHead(206, head);
-    file.pipe(res);
+    ws.on("close", async () => {
+      console.log("WebSocket connection closed");
+      if (ws.userId) {
+        delete users[ws.userId];
+        await User.findByIdAndUpdate(
+          ws.userId,
+          { online: false },
+          { new: true }
+        ).exec();
+        const updateActiveUsers = async () => {
+          const activeUsers = await User.find({ online: true });
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(
+                JSON.stringify({ type: "activeUsers", users: activeUsers })
+              );
+            }
+          });
+        };
+        updateActiveUsers();
+      }
+    });
   } else {
-    const head = {
-      "Content-Length": fileSize,
-      "Content-Type": "video/mp4",
-    };
-    res.writeHead(200, head);
-    fs.createReadStream(filePath).pipe(res);
+    ws.close();
   }
 });
 
