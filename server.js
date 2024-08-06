@@ -18,12 +18,7 @@ const wss = new WebSocket.Server({ server });
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://192.168.190.232:3000",
-      "http://192.168.1.6:3000",
-      "https://videostremer.netlify.app"
-    ],
+    origin: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -43,16 +38,19 @@ app.use("/api", videoRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 const users = {};
+let clients = new Set();
 
 wss.on("connection", (ws, req) => {
   console.log("WebSocket connection established");
 
-  console.log("req.url", req.url);
   console.log("req.headers.host", req.headers.host);
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const userId = url.searchParams.get("user-id");
+  const strHas = url.searchParams.has("stream-id") ? "stream-id" : "user-id";
 
-  if (userId) {
+  if (strHas === "user-id") {
+    console.log("Calls connected");
+    const userId = url.searchParams.get("user-id");
+
     ws.userId = userId;
     users[userId] = ws;
 
@@ -73,7 +71,6 @@ wss.on("connection", (ws, req) => {
 
     ws.on("message", (message) => {
       const data = JSON.parse(message);
-      console.log("Received message:", data);
 
       switch (data.type) {
         case "call":
@@ -147,7 +144,32 @@ wss.on("connection", (ws, req) => {
         updateActiveUsers();
       }
     });
+  } else if (strHas === "stream-id") {
+    console.log("Client connected");
+
+    clients.add(ws);
+
+    ws.on("message", (message) => {
+      const data = JSON.parse(message);
+      console.log("Received message:", data);
+
+      for (const client of clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(data));
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      console.log("Client disconnected");
+      clients.delete(ws);
+    });
+
+    ws.on("error", (error) => {
+      console.error("WebSocket error:", error);
+    });
   } else {
+    console.log("WebSocket connection closed due to missing stream-id");
     ws.close();
   }
 });
