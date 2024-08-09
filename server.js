@@ -18,11 +18,12 @@ const wss = new WebSocket.Server({ server });
 
 app.use(
   cors({
-    origin: true,
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+app.options("*", cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -45,9 +46,11 @@ wss.on("connection", (ws, req) => {
 
   console.log("req.headers.host", req.headers.host);
   const url = new URL(req.url, `http://${req.headers.host}`);
+  const streamId = url.searchParams.get("stream-id");
+  const userId = url.searchParams.get("user-id");
   const strHas = url.searchParams.has("stream-id") ? "stream-id" : "user-id";
 
-  if (strHas === "user-id") {
+  if (userId) {
     console.log("Calls connected");
     const userId = url.searchParams.get("user-id");
 
@@ -108,7 +111,16 @@ wss.on("connection", (ws, req) => {
           break;
         case "candidate":
           if (users[data.target]) {
-            users[data.target].send(JSON.stringify(data));
+            users[data.target].send(
+              JSON.stringify({
+                type: "candidate",
+                candidate: {
+                  candidate: data.candidate.candidate,
+                  sdpMid: data.candidate.sdpMid,
+                  sdpMLineIndex: data.candidate.sdpMLineIndex,
+                },
+              })
+            );
           }
           break;
         case "end":
@@ -144,7 +156,7 @@ wss.on("connection", (ws, req) => {
         updateActiveUsers();
       }
     });
-  } else if (strHas === "stream-id") {
+  } else if (streamId) {
     console.log("Client connected");
 
     clients.add(ws);
@@ -153,11 +165,11 @@ wss.on("connection", (ws, req) => {
       const data = JSON.parse(message);
       console.log("Received message:", data);
 
-      for (const client of clients) {
-        if (client.readyState === WebSocket.OPEN) {
+      clients.forEach((client) => {
+        if (client !== ws && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify(data));
         }
-      }
+      });
     });
 
     ws.on("close", () => {
